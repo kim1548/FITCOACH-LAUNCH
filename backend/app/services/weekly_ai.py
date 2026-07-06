@@ -66,8 +66,13 @@ def build_weekly_prompt(stats: dict, goal: str) -> str:
 
 
 def generate_weekly_summary(stats: dict, goal: str = "") -> Optional[str]:
-    """Ollama 호출로 주간 총평 생성. 실패 시 None."""
+    """주간 총평 생성 — Claude 우선, 실패 시 로컬 Ollama 폴백."""
     prompt = build_weekly_prompt(stats, goal)
+    from app.services.claude_ai import claude_text
+
+    claude_comment = claude_text(prompt, max_tokens=400)
+    if claude_comment:
+        return claude_comment
     try:
         response = httpx.post(
             OLLAMA_URL,

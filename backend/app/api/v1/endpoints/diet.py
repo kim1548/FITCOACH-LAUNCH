@@ -320,6 +320,38 @@ async def analyze_food(file: UploadFile = File(...)):
         main_path = os.path.join(UPLOAD_DIR, main_filename)
         original_img.save(main_path, "JPEG")
 
+        # [Claude 우선] 대형 LLM 비전으로 음식 인식 — 실패/키 없음이면 기존 로컬 파이프라인 폴백.
+        # 음식명이 식약처 DB에 있으면 DB 영양값을 우선하고, 없으면 Claude 추정값 사용.
+        from app.services.claude_ai import claude_food_analyze
+        claude_items = claude_food_analyze(image_data)
+        if claude_items:
+            items = []
+            for it in claude_items:
+                food_name = str(it.get("food_name", "")).strip() or "알 수 없는 음식"
+                kcal = float(it.get("calories") or 0)
+                carbs = float(it.get("carbs") or 0)
+                protein = float(it.get("protein") or 0)
+                fat = float(it.get("fat") or 0)
+                db_match = search_food_nutrition(food_name)
+                if db_match:
+                    top = db_match[0]
+                    kcal, carbs, protein, fat = top["kcal"], top["carbs"], top["protein"], top["fat"]
+                items.append({
+                    "food_name": food_name,
+                    "confidence": round(float(it.get("confidence") or 0), 2),
+                    "weight": int(it.get("weight") or 100),
+                    "calories": round(kcal, 1),
+                    "carbs": round(carbs, 1),
+                    "protein": round(protein, 1),
+                    "fat": round(fat, 1),
+                    "image_url": f"/static/uploads/food/{main_filename}",
+                })
+            print(f"[Claude] 음식 {len(items)}종 인식 (로컬 모델 미사용)")
+            return {
+                "main_image_url": f"/static/uploads/food/{main_filename}",
+                "items": items,
+            }
+
         final_detected_items = []
         
         # Step 1: COCO 모델 가동 (YOLO 내부에서 자동으로 imgsz=640 전처리 후 탐지 수행)

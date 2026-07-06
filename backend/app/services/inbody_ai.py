@@ -32,6 +32,7 @@ _EMOJI = re.compile(
 from app.database import SessionLocal
 from app.models.user import User
 from app.models.inbody_log import InBodyLog
+from app.services.claude_ai import claude_text
 
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
@@ -191,7 +192,8 @@ def generate_and_save_body_comment(log_id: int) -> Optional[str]:
             else _build_baseline_prompt(user, log)
         )
 
-        comment = _call_gemma(prompt)
+        # Claude 우선, 실패 시 로컬 Ollama 폴백
+        comment = claude_text(prompt, max_tokens=300) or _call_gemma(prompt)
         if comment is None:
             return None
 

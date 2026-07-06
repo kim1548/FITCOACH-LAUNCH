@@ -36,6 +36,8 @@ _EMOJI = re.compile(
 OLLAMA_URL = "http://localhost:11434/api/generate"
 OLLAMA_MODEL = "gemma3:4b"
 
+from app.services.claude_ai import claude_text
+
 
 def _build_prompt(user: User, supp: Supplement, covered: list) -> str:
     goal = user.goal or "미설정"
@@ -108,7 +110,9 @@ def generate_and_save_reco_comment(reco_id: int) -> Optional[str]:
             return None
 
         covered = (reco.reason_json or {}).get("covered", []) if reco.reason_json else []
-        comment = _call_gemma(_build_prompt(user, supp, covered))
+        # Claude 우선, 실패 시 로컬 Ollama 폴백
+        _prompt = _build_prompt(user, supp, covered)
+        comment = claude_text(_prompt, max_tokens=300) or _call_gemma(_prompt)
         if comment is None:
             return None
 

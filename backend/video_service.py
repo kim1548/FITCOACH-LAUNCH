@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from PIL import Image, ImageDraw
 
 import pose_pipeline as pp
+from app.services.claude_ai import claude_form_judge
 
 app = FastAPI()
 
@@ -128,6 +129,49 @@ def _render_error_screenshot(video_path, result, key):
     return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
 
 
+def _sample_keyframes(video_path, n=4, max_side=768):
+    """영상에서 균등 간격 대표 프레임 n장을 JPEG 바이트로 추출 (Claude 판정용)."""
+    frames = []
+    cap = cv2.VideoCapture(video_path)
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total > 0:
+        for i in range(n):
+            idx = int(total * (i + 0.5) / n)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+            ret, frame = cap.read()
+            if not ret:
+                continue
+            h, w = frame.shape[:2]
+            scale = max_side / max(h, w)
+            if scale < 1:
+                frame = cv2.resize(frame, (int(w * scale), int(h * scale)))
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if ok:
+                frames.append(buf.tobytes())
+    cap.release()
+    return frames
+
+
+def _build_angle_summary(result):
+    """MediaPipe 분석 결과를 Claude 판정용 텍스트 요약으로 변환.
+
+    규칙 기반 점수는 넣지 않는다(감점 공식이 거칠어 앵커로 부적합) —
+    사실 신호(반복 수·감지 이벤트)만 주고 채점은 Claude 재량 + 프롬프트 루브릭에 맡긴다.
+    """
+    lines = [
+        f"- 반복 횟수: {result.get('rep_count', 0)}회, 분석 프레임: {result.get('analyzed_frames', 0)}",
+    ]
+    events = result.get("event_groups", {})
+    if events:
+        for key, evs in events.items():
+            dur = sum(e.get("duration_sec", 0.0) for e in evs)
+            msg = pp.FEEDBACK_MESSAGES.get(key, key)
+            lines.append(f"- 감지 이벤트 [{key}] 누적 {dur:.1f}초: {msg}")
+    else:
+        lines.append("- 감지된 오류 이벤트 없음")
+    return "\n".join(lines)
+
+
 def _build_cat_details(cat_scores, event_groups):
     """카테고리별 한 줄 피드백 — 90점 이상은 칭찬, 아니면 가장 두드러진 오류 멘트/힌트."""
     cat_to_errors = {}
@@ -183,6 +227,29 @@ def analyze_video_ep(req: AnalyzeReq):
         req.exercise_type, score, result["rep_count"], cat_scores, significant, result["event_groups"]
     )
     cat_details = _build_cat_details(cat_scores, result["event_groups"])
+
+    # [Claude 판정] 대형 LLM로 5축 점수·코멘트·총평 업그레이드 — 실패/키 없음이면 위 로컬 판정 그대로
+    claude_judged = claude_form_judge(
+        exercise=req.exercise_type,
+        angle_summary=_build_angle_summary(result),
+        keyframes=_sample_keyframes(req.video_path),
+    )
+    if claude_judged:
+        cat_scores = {
+            k: float(claude_judged["cat_scores"].get(k, cat_scores.get(k, 0)))
+            for k in pp.CATEGORY_ORDER
+        }
+        cat_details = {
+            k: claude_judged["cat_details"].get(k, cat_details.get(k, ""))
+            for k in pp.CATEGORY_ORDER
+        }
+        overall = claude_judged["overall"]
+        # 총점·상위% 를 Claude 축 점수와 일관되게 재산출
+        score = sum(cat_scores.values()) / len(cat_scores)
+        _, top_pct = pp.build_overall_review(
+            req.exercise_type, score, result["rep_count"], cat_scores, significant, result["event_groups"]
+        )
+        print(f"[video_service] Claude 판정 적용 (총점 {score:.0f})")
 
     # 유의미 오류의 카테고리별 대표 스크린샷
     error_frames = {}
