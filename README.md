@@ -2,10 +2,12 @@
 
 운동 프로그램 트래커 · AI 자세 분석(Form Check) · 식단 기록(MEALS) 통합 헬스 코칭 앱.
 
+> **저장소 안내** — 이 저장소(FITCOACH-LAUNCH)는 실제 런칭을 목표로 대형 LLM(Claude API)을 통합 중인 **런치 준비 버전**입니다. 개발·실험 히스토리는 [FITCOACHMINE](https://github.com/kim1548/FITCOACHMINE)에 있습니다.
+
 ## 기술 스택
 - **Backend**: FastAPI · SQLAlchemy · SQLite · PyTorch · YOLOv8 · MediaPipe
 - **Frontend**: React 19 · Vite · TailwindCSS · React Router · Recharts
-- **AI**: 자세 분석(MediaPipe Pose), 음식 분류(EfficientNet/YOLO 커스텀)
+- **AI**: 자세 분석(MediaPipe Pose), 음식 분류(EfficientNet/YOLO 커스텀), 코칭·판정 LLM(Claude API, 로컬 Ollama 폴백)
 
 ## 주요 페이지
 | 라우트 | 페이지 | 설명 |
@@ -15,6 +17,21 @@
 | `/formcheck` | FormCheck | 영상 업로드 → AI 자세 피드백 |
 | `/meals` | MEALS | 끼니별 매크로(칼로리/탄수/단백/지방) 기록 |
 | `/blog` | Blog | 운동·식단 저널 |
+
+## AI 아키텍처 — Claude 우선, 로컬 폴백
+
+판정·코칭 품질이 중요한 구간에는 대형 LLM(Claude API)을 쓰고, API 키가 없거나 호출이 실패하면
+기존 로컬 파이프라인(Ollama·규칙 기반)으로 자동 폴백합니다. 키 없이 클론해도 앱 전체가 로컬 모드로 동작합니다.
+
+| 기능 | 1차 (Claude) | 폴백 (로컬) |
+|---|---|---|
+| 음식 인식 (`/diet/analyze`) | Claude 비전 인식 + 식약처 DB 매칭 | EfficientNet/YOLO 파이프라인 |
+| 폼체크 판정 | 키프레임 4장 + 동작 데이터 → 5축 판정 | 규칙 기반 판정 |
+| 코칭 멘트 (인바디·저널·주간·영양제) | Claude 텍스트 생성 | Ollama (gemma3:4b) |
+
+공용 클라이언트는 `backend/app/services/claude_ai.py` 하나로 모아 텍스트/비전/폼판정 3종 인터페이스를 제공합니다.
+`ANTHROPIC_API_KEY` 환경변수만 설정하면 활성화되고, 모델은 `CLAUDE_TEXT_MODEL`·`CLAUDE_VISION_MODEL`·`CLAUDE_FORM_MODEL`로 교체할 수 있습니다.
+운영 배포 시에는 JWT 서명용 `FITCOACH_SECRET_KEY` 환경변수도 함께 설정해야 합니다(미설정 시 실행마다 무작위 키).
 
 ---
 
