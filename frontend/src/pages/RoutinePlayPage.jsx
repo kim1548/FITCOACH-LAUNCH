@@ -7,6 +7,7 @@ import { CAMERA_GUIDE } from '../constants/exercise';
 import { API_BASE_URL } from '../api/config';
 import usePageTitle from '../hooks/usePageTitle';
 import Reveal from '../components/Reveal';
+import AuthPromptModal from '../components/ui/AuthPromptModal';
 
 /**
  * /formcheck/:exId — AI 자세 분석 세션 (Editorial Magazine 톤).
@@ -25,6 +26,7 @@ const RoutinePlayPage = () => {
   const [progress, setProgress] = useState(0);
   const [finalData, setFinalData] = useState(null);
   const [mode, setMode] = useState('choose'); // 'choose' | 'record'
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
 
   const guideText = CAMERA_GUIDE[exId];
 
@@ -61,6 +63,13 @@ const RoutinePlayPage = () => {
 
   // 업로드/녹화 공통 — 영상 파일을 서버로 보내 분석(진행률 폴링 포함)
   const runAnalyze = async (file) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setAuthPromptOpen(true);
+      return;
+    }
+    const authHeader = { Authorization: `Bearer ${token}` };
+
     const jobId = (window.crypto?.randomUUID?.() || String(Date.now()) + Math.random());
     setIsAnalyzing(true);
     setFinalData(null);
@@ -68,7 +77,7 @@ const RoutinePlayPage = () => {
 
     const poll = setInterval(async () => {
       try {
-        const r = await fetch(`${API_BASE_URL}/exercise/analyze_progress?job_id=${jobId}`);
+        const r = await fetch(`${API_BASE_URL}/exercise/analyze_progress?job_id=${jobId}`, { headers: authHeader });
         const d = await r.json();
         if (typeof d.percent === 'number') setProgress((p) => Math.max(p, d.percent));
       } catch { /* 폴링 실패는 무시 */ }
@@ -79,8 +88,20 @@ const RoutinePlayPage = () => {
       form.append('exercise_type', exId);
       form.append('job_id', jobId);
       form.append('file', file);
-      const res = await fetch(`${API_BASE_URL}/exercise/analyze_video`, { method: 'POST', body: form });
+      const res = await fetch(`${API_BASE_URL}/exercise/analyze_video`, { method: 'POST', body: form, headers: authHeader });
+      if (res.status === 401) {
+        setAuthPromptOpen(true);
+        return;
+      }
       const data = await res.json();
+      if (!res.ok) {
+        setFinalData({
+          analysis_error: true,
+          exercise_supported: true,
+          overall: typeof data?.detail === 'string' ? data.detail : '분석 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+        });
+        return;
+      }
       setProgress(100);
       setFinalData(data);
       saveFormCheckLog(data);
@@ -239,6 +260,12 @@ const RoutinePlayPage = () => {
           )}
         </div>
       </PageSurface>
+      <AuthPromptModal
+        open={authPromptOpen}
+        onClose={() => setAuthPromptOpen(false)}
+        title="로그인하고 자세 분석을 받아보세요"
+        message="AI 자세 분석은 로그인한 회원에게 제공됩니다. 분석 결과는 내 기록에 자동으로 저장돼요."
+      />
     </div>
   );
 };

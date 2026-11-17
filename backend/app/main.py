@@ -1,6 +1,7 @@
 # backend/app/main.py
+import logging
 import os
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from app.admin import mount_admin
 from app.database import engine, Base
@@ -33,6 +34,9 @@ from app.api.v1.endpoints import (
     supplement as supplement_endpoint,
 )
 from sqlalchemy import inspect, text
+from app.api.v1.endpoints.auth import get_current_user
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -193,7 +197,7 @@ class FeedbackRequest(BaseModel):
     type: str = "DEFAULT"  # 👈 이렇게 기본값을 주면 에러(422)를 방지할 수 있습니다.
 
 @app.post("/api/v1/ai-feedback")
-async def get_feedback(data: FeedbackRequest):  # data 객체로 받음
+async def get_feedback(data: FeedbackRequest, current_user: User = Depends(get_current_user)):
     # 1. 페이지 타입별 프롬프트 사전(Dictionary) 정의
     prompts = {
         # 전체 식단 페이지용
@@ -225,8 +229,9 @@ async def get_feedback(data: FeedbackRequest):  # data 객체로 받음
             )
             result = response.json()
             return {"feedback": result['response']}
-        except Exception as e:
-            return {"feedback": f"Ollama 연결 실패: {str(e)}"}
+        except Exception:
+            logger.exception("ai-feedback 생성 실패 (user_id=%s)", current_user.id)
+            raise HTTPException(status_code=503, detail="AI 피드백을 지금은 만들 수 없습니다.")
 
 
 # --- 원격 알림 트리거 (데모용) ---------------------------------------------

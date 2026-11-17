@@ -140,10 +140,11 @@ const DietPage = () => {
     setAiLoading(true);
     try {
       const foodData = `칼로리 ${summary?.total?.kcal}kcal, 탄수화물 ${summary?.total?.carbs}g, 단백질 ${summary?.total?.protein}g, 지방 ${summary?.total?.fat}g`;
-      const res = await axios.post(`${API_BASE_URL}/ai-feedback`, {
-        type: 'TOTAL_DIET',
-        food_data: foodData,
-      });
+      const res = await axios.post(
+        `${API_BASE_URL}/ai-feedback`,
+        { type: 'TOTAL_DIET', food_data: foodData },
+        { headers: authHeaders() },
+      );
       setAiFeedback(res.data.feedback);
     } catch (err) {
       console.error('AI 피드백 오류:', err);

@@ -10,8 +10,7 @@ import uuid
 import shutil  # 파일 이동/복사를 위한 모듈 추가
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from datetime import date, datetime
-from sqlalchemy import func
+from datetime import date
 from app.database import get_db
 from app.api.v1.endpoints.auth import get_current_user
 from app.models.user import User
@@ -301,19 +300,25 @@ def get_default_weight(food_name: str) -> int:
 
 # --- [5. API 엔드포인트 핵심 로직] ---
 
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+
+
 @router.get("/search-nutrition")
-def search_nutrition_api(name: str):
+def search_nutrition_api(name: str, current_user: User = Depends(get_current_user)):
     if not name:
         raise HTTPException(status_code=400, detail="음식 이름을 입력하세요.")
-    result = search_food_nutrition(name) 
+    result = search_food_nutrition(name)
     if result:
         return result
     return [{"food_name": name, "kcal": 0, "carbs": 0, "protein": 0, "fat": 0}]
 
 @router.post("/analyze")
-async def analyze_food(file: UploadFile = File(...)):    
+async def analyze_food(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
+    image_data = await file.read(MAX_IMAGE_BYTES + 1)
+    if len(image_data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail="사진 용량이 너무 큽니다. 10MB 이하로 올려주세요.")
+
     try:
-        image_data = await file.read()
         original_img = Image.open(io.BytesIO(image_data)).convert('RGB')
 
         main_filename = f"{uuid.uuid4()}_main.jpg"
@@ -598,18 +603,3 @@ def get_favorites_categorized(db: Session = Depends(get_db), current_user: User 
         category = "snack" if s["meal_type"] == "간식" else "meal"
         result[category].append(s)
     return result
-
-@router.post("/feedback")
-def get_diet_feedback(items: list):
-    total_protein = sum(item.get('protein', 0) for item in items)
-    if total_protein < 20:
-        return {"feedback": "단백질이 조금 부족해요! 닭가슴살이나 달걀을 추가해보면 어떨까요?"}
-    return {"feedback": "영양 구성이 아주 훌륭한 식단입니다! 이대로 유지하세요."}
-
-@router.get("/today-summary")
-def get_today_diet_summary(db: Session = Depends(get_db)):
-    today = datetime.now().date()
-    summary = db.query(
-        func.sum(DietLog.calories).label("total_cal"), func.sum(DietLog.protein).label("total_protein")
-    ).filter(func.date(DietLog.created_at) == today).first()
-    return {"calories": summary.total_cal or 0, "protein": summary.total_protein or 0}
