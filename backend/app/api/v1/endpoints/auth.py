@@ -39,28 +39,13 @@ class UserCreate(BaseModel):
 
 @router.post("/signup")
 def signup(user_data: UserCreate, db: Session = Depends(get_db)):
-    # [로그 추가] 데이터가 어떻게 들어오는지 터미널에 찍어봅니다.
-    print(f"--- SIGNUP DEBUG ---")
-    print(f"Raw Password: {user_data.password}")
-    print(f"Type: {type(user_data.password)}")
-
-    # 1. 아이디 중복 확인
     existing_user = db.query(User).filter(User.username == user_data.username).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="이미 존재하는 아이디입니다.")
 
-    # 2. 비밀번호 암호화 (강제로 문자열로 변환)
-    try:
-        raw_password = str(user_data.password) # 확실하게 문자열로 변환
-        hashed_pwd = get_password_hash(raw_password)
-    except Exception as e:
-        print(f"Hashing Error: {e}")
-        raise HTTPException(status_code=500, detail=f"암호화 실패: {str(e)}")
-
-    # 3. 유저 생성
     new_user = User(
         username=user_data.username,
-        password=hashed_pwd,
+        password=get_password_hash(user_data.password),
         nickname=(user_data.nickname or "").strip() or None,
         gender=user_data.gender,
         age=user_data.age,

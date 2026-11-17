@@ -2,7 +2,7 @@
 
 운동 프로그램 트래커 · AI 자세 분석(Form Check) · 식단 기록(MEALS) 통합 헬스 코칭 앱.
 
-> **저장소 안내** — 이 저장소(FITCOACH-LAUNCH)는 실제 런칭을 목표로 대형 LLM(Claude API)을 통합 중인 **런치 준비 버전**입니다. 개발·실험 히스토리는 [FITCOACHMINE](https://github.com/kim1548/FITCOACHMINE)에 있습니다.
+> **저장소 안내** — 이 저장소(FITCOACH-LAUNCH)는 실제 런칭을 목표로 대형 LLM(Claude API)을 통합 중인 **런치 준비 버전**입니다.
 
 ## 기술 스택
 - **Backend**: FastAPI · SQLAlchemy · SQLite · PyTorch · YOLOv8 · MediaPipe
@@ -31,7 +31,15 @@
 
 공용 클라이언트는 `backend/app/services/claude_ai.py` 하나로 모아 텍스트/비전/폼판정 3종 인터페이스를 제공합니다.
 `ANTHROPIC_API_KEY` 환경변수만 설정하면 활성화되고, 모델은 `CLAUDE_TEXT_MODEL`·`CLAUDE_VISION_MODEL`·`CLAUDE_FORM_MODEL`로 교체할 수 있습니다.
-운영 배포 시에는 JWT 서명용 `FITCOACH_SECRET_KEY` 환경변수도 함께 설정해야 합니다(미설정 시 실행마다 무작위 키).
+
+### 운영 환경변수
+
+| 변수 | 용도 | 미설정 시 |
+|---|---|---|
+| `FITCOACH_ENV` | `production`이면 운영 모드 | 개발 모드 |
+| `FITCOACH_SECRET_KEY` | JWT 서명 키 | 개발: 실행마다 무작위 키 / 운영: 기동 거부 |
+| `FITCOACH_CORS_ORIGINS` | 허용할 프론트 주소(쉼표 구분) | `localhost:5173`만 허용 |
+| `FITCOACH_ADMIN_USER`, `FITCOACH_ADMIN_PASSWORD` | `/admin` 관리자 페이지 계정(HTTP Basic) | 관리자 페이지가 아예 붙지 않음 |
 
 ---
 

@@ -6,9 +6,13 @@ import bcrypt
 from datetime import datetime, timedelta
 from jose import jwt
 
-# 운영 환경에서는 FITCOACH_SECRET_KEY 환경변수를 반드시 설정할 것.
-# 미설정 시 실행마다 무작위 키가 생성되므로 서버를 재시작하면 기존 토큰이 전부 무효화된다.
-SECRET_KEY = os.getenv("FITCOACH_SECRET_KEY") or secrets.token_hex(32)
+# 개발 환경에서는 키가 없으면 실행마다 무작위 키를 쓴다(재시작 시 기존 토큰 무효).
+# 운영(FITCOACH_ENV=production)에서는 그 동작이 전원 로그아웃 장애가 되므로 기동을 막는다.
+SECRET_KEY = os.getenv("FITCOACH_SECRET_KEY")
+if not SECRET_KEY:
+    if os.getenv("FITCOACH_ENV") == "production":
+        raise RuntimeError("FITCOACH_ENV=production 에서는 FITCOACH_SECRET_KEY 환경변수가 필요합니다.")
+    SECRET_KEY = secrets.token_hex(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1주일
 

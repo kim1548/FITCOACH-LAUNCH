@@ -2,12 +2,11 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqladmin import Admin, ModelView
-# 새로 만든 구조에서 가져오기
+from app.admin import mount_admin
 from app.database import engine, Base
-from app.models.user import User
-from app.models.diet_log import DietLog
-from app.models.exercise_log import WorkoutLog
+from app.models.user import User  # noqa: F401  (테이블 자동 생성용)
+from app.models.diet_log import DietLog  # noqa: F401  (테이블 자동 생성용)
+from app.models.exercise_log import WorkoutLog  # noqa: F401  (테이블 자동 생성용)
 from app.models.journal_entry import JournalEntry  # noqa: F401  (테이블 자동 생성용)
 from app.models.inbody_log import InBodyLog  # noqa: F401  (테이블 자동 생성용)
 from app.models.formcheck_log import FormCheckLog  # noqa: F401  (테이블 자동 생성용)
@@ -37,20 +36,21 @@ from sqlalchemy import inspect, text
 
 app = FastAPI()
 
-# 2. 허용할 Origin(프론트엔드 주소) 목록 작성
-origins = [
-    "http://localhost:5173",  # 리액트 Vite 기본 포트
-    "http://127.0.0.1:5173",
+# 프론트는 같은 출처의 /api 프록시로 호출하므로 CORS 는 다른 출처에서 직접 부를 때만 필요하다.
+# 운영에서는 FITCOACH_CORS_ORIGINS 에 실제 프론트 주소를 쉼표로 나열한다.
+DEV_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("FITCOACH_CORS_ORIGINS", DEV_ORIGINS).split(",")
+    if origin.strip()
 ]
 
-# CORS 설정 (기존 유지)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    # allow_origins=origins, # 리액트 주소
+    allow_origins=cors_origins,
     allow_credentials=True,
-    allow_methods=["*"], # 모든 방식(GET, POST 등) 허용
-    allow_headers=["*"], # 모든 헤더 허용
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 테이블 생성 (이 한 줄이 모든 모델의 테이블을 test.db에 만듭니다)
@@ -166,36 +166,7 @@ if not os.path.exists(STATIC_DIR):
 else:
     print(f"✅ 정적 파일 경로 연결됨: {STATIC_DIR}")
 
-# --- 관리자 페이지 설정 (컬럼 상세화) ---
-admin = Admin(app, engine)
-
-class UserAdmin(ModelView, model=User):
-    # 회원가입 상세 정보들을 리스트에서 볼 수 있게 추가
-    column_list = [
-        "id", "username", "gender", "height", "weight", 
-        "lifestyle", "goal", "created_at"
-    ]
-    name = "회원 관리"
-    icon = "fa-solid fa-user"
-
-class DietAdmin(ModelView, model=DietLog):
-    # 탄단지 영양소 정보를 리스트에 표시
-    column_list = [
-        "id", "meal_type", "food_name", "calories", 
-        "carbs", "protein", "fat", "date"
-    ]
-    name = "식단 관리"
-    icon = "fa-solid fa-utensils"
-
-class WorkoutLogAdmin(ModelView, model=WorkoutLog):
-    column_list = ["id", "exercise_name", "counter", "score", "created_at"]
-    name = "운동 기록"
-    icon = "fa-solid fa-dumbbell"
-
-admin.add_view(UserAdmin)
-admin.add_view(DietAdmin)
-admin.add_view(WorkoutLogAdmin)
-# --- 관리자 페이지 설정 (컬럼 상세화) ---
+mount_admin(app, engine)
 
 # 라우터 등록
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
