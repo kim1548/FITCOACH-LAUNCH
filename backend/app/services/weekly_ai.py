@@ -1,25 +1,7 @@
 """주간 리포트 AI 요약 — 최근 7일 집계(운동·식단·체성분)를 받아
-짧은 한국어 총평을 생성한다. inbody_ai 와 같은 Ollama(gemma3:4b) 패턴.
+짧은 한국어 총평을 생성한다.
 """
-import re
-from typing import Optional
-
-import httpx
-
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "gemma3:4b"
-
-_EMOJI = re.compile(
-    "["
-    "\U0001F300-\U0001FAFF"
-    "\U00002600-\U000027BF"
-    "\U0001F1E6-\U0001F1FF"
-    "\U0000FE00-\U0000FE0F"
-    "\U00002190-\U000021FF"
-    "\U00002B00-\U00002BFF"
-    "]+",
-    flags=re.UNICODE,
-)
+from app.services.coach_text import generate_coach_text
 
 
 def _line(label, value):
@@ -65,32 +47,7 @@ def build_weekly_prompt(stats: dict, goal: str) -> str:
     )
 
 
-def generate_weekly_summary(stats: dict, goal: str = "") -> Optional[str]:
-    """주간 총평 생성 — Claude 우선, 실패 시 로컬 Ollama 폴백."""
+def generate_weekly_summary(stats: dict, goal: str = "") -> str:
+    """주간 총평 생성. 실패하면 CoachTextError."""
     prompt = build_weekly_prompt(stats, goal)
-    from app.services.claude_ai import claude_text
-
-    claude_comment = claude_text(prompt, max_tokens=400)
-    if claude_comment:
-        return claude_comment
-    try:
-        response = httpx.post(
-            OLLAMA_URL,
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "keep_alive": "10m",
-                "options": {"temperature": 0.7, "num_predict": 200, "stop": ["\n\n"]},
-            },
-            timeout=90.0,
-        )
-        response.raise_for_status()
-        raw = (response.json().get("response") or "").strip()
-        raw = raw.replace("**", "").replace("*", "")
-        raw = _EMOJI.sub("", raw)
-        raw = re.sub(r"\s{2,}", " ", raw).strip(" \"'")
-        return raw or None
-    except Exception as exc:
-        print(f"[weekly_ai] Gemma 호출 실패: {exc}")
-        return None
+    return generate_coach_text(prompt, max_tokens=400, local_max_tokens=200)

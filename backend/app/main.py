@@ -1,7 +1,7 @@
 # backend/app/main.py
 import logging
 import os
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.admin import mount_admin
 from app.database import engine, Base
@@ -25,8 +25,8 @@ from app.models.supplement_user import (  # noqa: F401  (테이블 자동 생성
 # 기존 라우터들
 from app.api.v1.endpoints import exercise, diet, auth
 
-from pydantic import BaseModel  # 추가
-import httpx
+from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from app.api.v1.endpoints import (
     routine, journal, user as user_endpoint, body as body_endpoint,
@@ -35,10 +35,20 @@ from app.api.v1.endpoints import (
 )
 from sqlalchemy import inspect, text
 from app.api.v1.endpoints.auth import get_current_user
+from app.services.coach_text import CoachTextError, generate_coach_text
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+
+@app.exception_handler(CoachTextError)
+async def coach_text_unavailable(request: Request, exc: CoachTextError):
+    logger.warning("코칭 멘트 생성 실패 (%s %s): %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "AI 코멘트를 지금은 만들 수 없습니다. 잠시 후 다시 시도해 주세요."},
+    )
 
 # 프론트는 같은 출처의 /api 프록시로 호출하므로 CORS 는 다른 출처에서 직접 부를 때만 필요하다.
 # 운영에서는 FITCOACH_CORS_ORIGINS 에 실제 프론트 주소를 쉼표로 나열한다.
@@ -197,8 +207,7 @@ class FeedbackRequest(BaseModel):
     type: str = "DEFAULT"  # 👈 이렇게 기본값을 주면 에러(422)를 방지할 수 있습니다.
 
 @app.post("/api/v1/ai-feedback")
-async def get_feedback(data: FeedbackRequest, current_user: User = Depends(get_current_user)):
-    # 1. 페이지 타입별 프롬프트 사전(Dictionary) 정의
+def get_feedback(data: FeedbackRequest, current_user: User = Depends(get_current_user)):
     prompts = {
         # 전체 식단 페이지용
         "TOTAL_DIET": f"너는 영양사야. 오늘의 전체 영양소({data.food_data})를 보고 하루 총평을 2줄로 해줘.",
@@ -213,22 +222,5 @@ async def get_feedback(data: FeedbackRequest, current_user: User = Depends(get_c
         "DASHBOARD": f"너는 건강 관리사야. 오늘의 운동({data.workout_data})과 식단({data.food_data})을 종합해서 짧게 한마디 해줘."
     }
 
-    # 2. 전송된 type에 맞는 프롬프트 선택 (없으면 기본 프롬프트)
-    selected_prompt = prompts.get(data.type, "너는 건강 도우미야. 데이터에 대해 짧게 조언해줘.")
-    
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(
-                "http://localhost:11434/api/generate",
-                json={
-                    "model": "gemma3:4b",
-                    "prompt": selected_prompt,
-                    "stream": False
-                },
-                timeout=60.0
-            )
-            result = response.json()
-            return {"feedback": result['response']}
-        except Exception:
-            logger.exception("ai-feedback 생성 실패 (user_id=%s)", current_user.id)
-            raise HTTPException(status_code=503, detail="AI 피드백을 지금은 만들 수 없습니다.")
+    prompt = prompts.get(data.type, "너는 건강 도우미야. 데이터에 대해 짧게 조언해줘.")
+    return {"feedback": generate_coach_text(prompt, max_tokens=300, local_max_tokens=200)}

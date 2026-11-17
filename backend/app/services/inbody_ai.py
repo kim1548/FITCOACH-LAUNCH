@@ -9,34 +9,17 @@ journal_ai 와 구조는 비슷하지만 저장 위치(InBodyLog)와 프롬프�
 외부 호출 진입점은 `generate_and_save_body_comment(log_id)` 하나.
 """
 
-import re
 from datetime import datetime
 from typing import Optional
 
-import httpx
 from sqlalchemy.orm import Session
-
-# 이모지/그림문자 제거용 (프롬프트에 '이모지 금지'라 적어도 모델이 종종 넣음)
-_EMOJI = re.compile(
-    "["
-    "\U0001F300-\U0001FAFF"   # 그림문자·이모티콘·교통·보조기호
-    "\U00002600-\U000027BF"   # 기타기호 + 딩뱃
-    "\U0001F1E6-\U0001F1FF"   # 국기
-    "\U0000FE00-\U0000FE0F"   # 변형 선택자
-    "\U00002190-\U000021FF"   # 화살표류
-    "\U00002B00-\U00002BFF"   # 별·도형 등
-    "]+",
-    flags=re.UNICODE,
-)
 
 from app.database import SessionLocal
 from app.models.user import User
 from app.models.inbody_log import InBodyLog
-from app.services.claude_ai import claude_text
+from app.services.coach_text import generate_coach_text
 
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "gemma3:4b"
 
 
 def _fmt_metric(label: str, value, unit: str) -> str:
@@ -117,35 +100,6 @@ def _build_comparison_prompt(user: User, curr: InBodyLog, prev: InBodyLog) -> st
     )
 
 
-def _call_gemma(prompt: str) -> Optional[str]:
-    """Ollama 로컬 서버 호출. 실패는 None — 호출자가 조용히 넘어갈 수 있게."""
-    try:
-        response = httpx.post(
-            OLLAMA_URL,
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "keep_alive": "10m",   # 모델을 메모리에 유지 → 다음 호출의 재로딩 지연 제거
-                "options": {
-                    "temperature": 0.7,
-                    "num_predict": 150,  # 코멘트는 100자 이내라 토큰을 줄여 생성시간 단축
-                    "stop": ["\n\n"],
-                },
-            },
-            timeout=90.0,
-        )
-        response.raise_for_status()
-        raw = (response.json().get("response") or "").strip()
-        raw = raw.replace("**", "").replace("*", "")
-        raw = _EMOJI.sub("", raw)
-        raw = re.sub(r"\s{2,}", " ", raw).strip(' "\'')
-        return raw or None
-    except Exception as exc:
-        print(f"[inbody_ai] Gemma 호출 실패: {exc}")
-        return None
-
-
 def _find_previous(db: Session, log: InBodyLog) -> Optional[InBodyLog]:
     """같은 유저의 측정 중 이 측정보다 시간적으로 앞선 가장 가까운 1개.
 
@@ -173,7 +127,7 @@ def generate_and_save_body_comment(log_id: int) -> Optional[str]:
     1. log 조회 (없으면 조용히 종료)
     2. 같은 유저의 직전 측정 조회
     3. prev 유무에 따라 baseline / comparison 프롬프트 생성
-    4. Gemma 호출 → 실패 시 종료 (다음 호출에서 재시도 가능)
+    4. 코멘트 생성 — 실패하면 CoachTextError (다음 호출에서 재시도 가능)
     5. log.ai_comment / ai_generated_at 업데이트 후 commit
     """
     db = SessionLocal()
@@ -192,10 +146,7 @@ def generate_and_save_body_comment(log_id: int) -> Optional[str]:
             else _build_baseline_prompt(user, log)
         )
 
-        # Claude 우선, 실패 시 로컬 Ollama 폴백
-        comment = claude_text(prompt, max_tokens=300) or _call_gemma(prompt)
-        if comment is None:
-            return None
+        comment = generate_coach_text(prompt, max_tokens=300, local_max_tokens=150)
 
         log.ai_comment = comment
         log.ai_generated_at = datetime.now()

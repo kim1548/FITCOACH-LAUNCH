@@ -16,6 +16,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.inbody_log import InBodyLog
 from app.api.v1.endpoints.auth import get_current_user
+from app.services.coach_text import best_effort
 from app.services.inbody_ai import generate_and_save_body_comment
 
 router = APIRouter()
@@ -86,9 +87,8 @@ def create_inbody(
     db.add(new_log)
     db.commit()
     db.refresh(new_log)
-    # 직전 측정 대비 변화(또는 첫 측정 베이스라인) 코멘트를 Gemma 에 비동기로 요청.
-    # Ollama 미설치/장애여도 본 응답은 정상 반환된다.
-    background_tasks.add_task(generate_and_save_body_comment, new_log.id)
+    # 직전 측정 대비 변화(또는 첫 측정 베이스라인) 코멘트는 응답 뒤에 만든다.
+    background_tasks.add_task(best_effort, generate_and_save_body_comment, new_log.id)
     return _serialize(new_log)
 
 
@@ -105,12 +105,7 @@ def regenerate_body_comment(
     ).first()
     if log is None:
         raise HTTPException(status_code=404, detail="해당 측정 기록을 찾을 수 없습니다.")
-    comment = generate_and_save_body_comment(log.id)
-    if comment is None:
-        raise HTTPException(
-            status_code=503,
-            detail="AI 코멘트 생성에 실패했습니다. (Ollama 서버가 응답하지 않습니다.)",
-        )
+    generate_and_save_body_comment(log.id)
     db.refresh(log)
     return _serialize(log)
 
