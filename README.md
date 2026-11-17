@@ -91,7 +91,7 @@ uvicorn app.main:app --reload --port 8001
 ```
 
 ✅ 정상 시: `Uvicorn running on http://127.0.0.1:8001`
-> `test.db`(SQLite)는 첫 실행 시 자동 생성됩니다.
+> `test.db`(SQLite)는 첫 실행 시 자동 생성됩니다. 영양제 추천 데이터는 비어 있으므로 한 번 `python seed_supplements.py`로 적재하세요.
 
 ### 5️⃣ 프론트엔드 셋업 — **터미널 ② (새 창)**
 

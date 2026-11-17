@@ -49,15 +49,18 @@ ios/
 
 # --- 로그 / DB ---
 *.log
-# *.db
+*.db
+*.db.*
 *.sqlite
 *.sqlite3
-# backend/test.db
+*.bak
+*.bak-*
 backend/uvicorn.log
 frontend/vite.log
 
 # --- 디자인 / 목업 (개인 참고자료, repo 에 미포함) ---
 frontend/mockup/
+창고/
 
 # --- OS / 에디터 ---
 .vscode/
