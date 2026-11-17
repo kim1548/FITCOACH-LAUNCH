@@ -232,35 +232,3 @@ async def get_feedback(data: FeedbackRequest, current_user: User = Depends(get_c
         except Exception:
             logger.exception("ai-feedback 생성 실패 (user_id=%s)", current_user.id)
             raise HTTPException(status_code=503, detail="AI 피드백을 지금은 만들 수 없습니다.")
-
-
-# --- 원격 알림 트리거 (데모용) ---------------------------------------------
-# 채팅/CLI 에서 /reminder/ping 을 호출하면, 폰의 PWA(열려있는 동안)가 4초마다
-# /reminder/poll 을 확인해 새 알림이 있으면 화면에 띄운다. 별도 서버가 없는
-# 발표 환경에서 "원할 때 알림 1발"을 보내기 위한 가벼운 메모리 큐다.
-_pending_reminder = {"id": 0, "title": "", "body": ""}
-
-
-class ReminderPing(BaseModel):
-    title: str = "핏코치 알람"
-    body: str = "지금 운동할 시간이에요 💪"
-
-
-@app.post("/api/v1/reminder/ping")
-def reminder_ping(data: ReminderPing):
-    _pending_reminder["id"] += 1
-    _pending_reminder["title"] = data.title
-    _pending_reminder["body"] = data.body
-    return {"ok": True, "id": _pending_reminder["id"]}
-
-
-@app.get("/api/v1/reminder/poll")
-def reminder_poll(since: int = 0):
-    # 클라이언트가 마지막으로 본 id(since)보다 큰 게 있으면 내용을 돌려준다.
-    if _pending_reminder["id"] > since:
-        return {
-            "id": _pending_reminder["id"],
-            "title": _pending_reminder["title"],
-            "body": _pending_reminder["body"],
-        }
-    return {"id": since}
